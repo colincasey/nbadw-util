@@ -1,0 +1,11 @@
+# encoding: utf-8
+
+require 'rubygems'
+require 'nbadw/util/cli'
+
+src = 'jdbc:mysql://localhost/nb_aquatic_data_warehouse_dev?user=developer&password=developer'
+dst = 'jdbc:postgresql://localhost/test?user=developer&password=developer'
+#src = 'mysql://developer:developer@localhost/nb_aquatic_data_warehouse_dev'
+#dst = 'postgresql://developer:developer@localhost/test'
+
+NBADW::Util::Cli.new([], :verify_data => true).copy(src, dst)

@@ -1,0 +1,196 @@
+require 'sequel'
+require 'sequel/extensions/schema_dumper'
+require 'sequel/extensions/migration'
+require 'nbadw/util/progress_bar'
+require 'nbadw/util/adapter_hacks'
+require 'logger'
+
+module NBADW
+  module Util
+    class CopyDatabaseTask
+      attr_reader :source, :destination, :page_size
+
+      def initialize(src, dest, options = {})
+        @source = Sequel.connect(src)
+        @destination = Sequel.connect(dest)
+        @page_size = options[:page_size] || 1000
+        @verify_data = !!options[:verify_data]
+        source.loggers << Logger.new('src.log', 10000, 1024000 * 10)
+        destination.loggers << Logger.new('dest.log', 10000, 1024000 * 10)
+        AdapterHacks.load(source.database_type)
+        AdapterHacks.load(destination.database_type)
+      end
+
+      def self.start(src, dest, options = {})
+        print "Initializing copy operation"
+        task = new(src, dest, options)
+        begin
+          task.copy
+        rescue Exception => e
+          puts "...fail!!!"
+          puts "Reason: #{e.message}"
+          puts e.backtrace.join("\n")
+        end
+      end
+      
+      def copy
+        destination.transaction do
+          puts "..."
+          puts "#{source.tables.length} tables, #{format_number(total_records(source))} records"
+          copy_schema
+          copy_data
+          copy_indexes
+          verify_data if verify_data?
+          puts "...copy completed"
+        end
+      end
+
+      def copy_schema
+        begin
+          puts "Copying schema"
+          run_callback :before_copy_schema
+        
+          tables = source.tables
+          progress = ProgressBar.new("Schema copy", tables.length)
+
+          tables.each do |t|
+            schema = source.dump_table_schema(t.to_sym, :indexes => false)
+            schema = schema.split("\n").collect do |line|
+              if destination.database_type == :postgres && line.match(/TrueClass/)
+                line = line.sub(/:default=>(\d)/) { |match| ":default=>#{$1 == '0' ? 'true' : 'false'}"  }
+              end
+              line
+            end.join("\n")
+            migration = "Class.new(Sequel::Migration) do \n def up \n #{schema} \n end \n end"
+            eval(migration).apply(destination, :up)
+            progress.inc(1)
+          end
+
+          run_callback :after_copy_schema
+        ensure
+          progress.finish if progress
+        end
+      end
+
+      def copy_data
+        puts "Copying data"
+        run_callback :before_copy_data
+
+        source.tables.each do |table_name|
+          begin
+            src_table = source[table_name.to_sym]
+            dst_table = destination[table_name.to_sym]
+
+            count = src_table.count
+            progress = ProgressBar.new(table_name.to_s, count)
+
+            offset = 0
+            while(offset < count) do
+              rows = src_table.limit(page_size, offset).all
+              rows.each do |row|
+                dst_table.insert(row)
+              end
+              offset += rows.length
+              progress.inc(rows.length)
+            end
+          ensure
+            progress.finish if progress
+          end
+        end
+
+        run_callback :after_copy_data
+      end
+
+      def copy_indexes
+        begin
+          puts "Copying indexes"
+          run_callback :before_copy_indexes
+
+          tables = source.tables
+          progress = ProgressBar.new("Index copy", tables.length)
+
+          tables.each do |t|
+            indexes = source.send(:dump_table_indexes, t.to_sym, :add_index)
+            migration = "Class.new(Sequel::Migration) do \n def up \n #{indexes} \n end \n end"
+            eval(migration).apply(destination, :up)
+            progress.inc(1)
+          end
+
+          run_callback :after_copy_indexes
+        ensure
+          progress.finish if progress
+        end
+      end
+
+      def verify_data
+        begin
+          puts "Verifying data"
+          tables = source.tables
+          progress = ProgressBar.new("Verify data", total_records(source))
+
+          tables.each do |table_name|
+            src_table, dst_table = source[table_name.to_sym], destination[table_name.to_sym]
+            src_count, dst_count = src_table.count, dst_table.count
+
+            unless src_count == dst_count
+              raise "number of rows in #{table_name} does not match - source: #{src_count}, destination: #{dst_count}"
+            end
+
+            offset = 0
+            while(offset < src_count) do
+              rows = src_table.limit(page_size, offset).all
+              rows.each do |row|
+                row_found = dst_table.filter(row).first
+                raise "no matching row found in #{table_name} for #{row.inspect}" unless row_found
+                row.each do |col, val|
+                  eql = case val
+                  when Time
+                    (val - row_found[col]).abs < 1
+                  else
+                    val == row_found[col]
+                  end
+                  raise "values do not match - expected #{val}, but was #{row_found[col]} - in table #{table_name}, row #{row.inspect}" unless eql
+                end
+              end
+              offset += rows.length
+              progress.inc(rows.length)
+            end
+          end
+        ensure
+          progress.finish if progress
+        end
+      end
+
+      def verify_data?
+        @verify_data
+      end
+
+      def total_records(db)
+        db.tables.inject(0) { |total, table_name| total += db[table_name.to_sym].count }
+      end
+
+      def format_number(num)
+        num.to_s.gsub(/(\d)(?=(\d\d\d)+(?!\d))/, "\\1,")
+      end
+
+      # sends one general callback, and two adapter specific ones.
+      # e.g., when calling run_callback(:before_copy_schema) the following
+      #       callbacks are sent:
+      #  - before_copy_schema
+      #  - before_copy_schema_for_ADAPTER_source
+      #  - before_copy_schema_for_ADAPTER_destination      #
+      def run_callback(callback)
+        send(callback) if respond_to?(callback)
+        [:source, :destination].each do |db|
+          adapter = send(db).database_type
+          full_callback = "#{callback}_for_#{adapter}_#{db}".to_sym
+          send(full_callback) if respond_to?(full_callback)
+        end
+      end
+
+      def before_copy_data_for_mysql_destination
+        destination.run("SET sql_mode = 'NO_AUTO_VALUE_ON_ZERO';")
+      end
+    end
+  end
+end
