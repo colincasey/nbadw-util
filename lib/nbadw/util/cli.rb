@@ -2,6 +2,7 @@
 require 'thor'
 require 'sequel'
 require 'nbadw/util/copy_database_task'
+require 'sequel/jdbc_access_adapter'
 
 module NBADW
   module Util
