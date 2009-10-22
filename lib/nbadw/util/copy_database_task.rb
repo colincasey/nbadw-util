@@ -27,7 +27,7 @@ module NBADW
         rescue Exception => e
           puts "...fail!!!"
           puts "Reason: #{e.message}"
-          puts e.backtrace.join("\n")
+          raise e
         end
       end
       
