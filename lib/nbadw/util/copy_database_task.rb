@@ -263,19 +263,18 @@ module NBADW
       end
 
       STRING_TO_INT_FIXES = [
-        { :table => "auxuserdbselectedsites", :column => "aquaticsiteuseid" },
-        { :table => "auxuserdbselectedsiteuse", :column => "aquaticsiteuseid" },
-        { :table => "cdtranslation - dfo stock mating", :column => "mating code" },
-        { :table => "del-missing age class in tblfishmeasurement", :column => "fishsampleid" },
-        { :table => "del-missing age class in tblfishmeasurement-robin", :column => "fishsampleid" },
-        { :table => "selections", :column => "selectionid" },
-        { :table => "tblelectrofishingmethoddetail", :column => "aquaticactivitydetailid" },
-        { :table => "tbloldhabitatsurvey", :column => "habitatsurveyid" }
+        { :table => "auxUserDBSelectedSites", :column => "AquaticSiteUseID" },
+        { :table => "auxUserDBSelectedSiteUse", :column => "AquaticSiteUseID" },
+        { :table => "cdTranslation - DFO Stock Mating", :column => "Mating Code" },
+        { :table => "DEL-Missing Age Class in tblFishMeasurement", :column => "FishSampleID" },
+        { :table => "DEL-Missing Age Class in tblFishMeasurement-robin", :column => "FishSampleID" },
+        { :table => "Selections", :column => "SelectionID" },
+        { :table => "tblElectrofishingMethodDetail", :column => "AquaticActivityDetailID" },
+        { :table => "tblOldHabitatSurvey", :column => "HabitatSurveyID" }
       ]
       # not sure what's up here...
       before :create_table, :adapter => :postgres, :for => :destination do |src, dst, args|
-        table = args[:table].to_s.downcase
-        if fix = STRING_TO_INT_FIXES.detect { |fix| fix[:table] == table }
+        if fix = STRING_TO_INT_FIXES.detect { |fix| fix[:table] == args[:table].to_s }
           schema = args[:schema]
           schema = schema.split("\n").collect do |line|
             line = "  Integer :\"#{fix[:column]}\"" if line.match(/#{fix[:column]}/)

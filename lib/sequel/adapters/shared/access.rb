@@ -22,32 +22,38 @@ module Sequel
         true
       end
 
+      def tables
+      ts = []
+        m = output_identifier_meth
+        metadata(:getTables, nil, nil, nil, ['TABLE'].to_java(:string)) do |h|
+          h = downcase_hash_keys(h)
+          ts << m.call(h[:table_name])
+        end
+        ts
+      end
+
+      def identifier_input_method_default
+        :to_s
+      end
+
+      # The method to apply to identifiers coming the database by default.
+      # Should be overridden in subclasses for databases that fold unquoted
+      # identifiers to lower case instead of uppercase, such as
+      # MySQL, PostgreSQL, and SQLite.
+      def identifier_output_method_default
+        :to_s
+      end
+
       private
-      
-      # MSSQL uses the IDENTITY(1,1) column for autoincrementing columns.
-      def auto_increment_sql
-        AUTO_INCREMENT
+      def downcase_hash_keys(h)
+        lh = {}
+        h.each { |k,v| lh[k.to_s.downcase.to_sym] = v }
+        lh
       end
       
-      # MSSQL specific syntax for altering tables.
-      def alter_table_sql(table, op)
-        case op[:op]
-        when :add_column
-          "ALTER TABLE #{quote_schema_table(table)} ADD #{column_definition_sql(op)}"
-        when :rename_column
-          "SP_RENAME #{literal("#{quote_schema_table(table)}.#{quote_identifier(op[:name])}")}, #{literal(op[:new_name].to_s)}, 'COLUMN'"
-        when :set_column_type
-          "ALTER TABLE #{quote_schema_table(table)} ALTER COLUMN #{quote_identifier(op[:name])} #{type_literal(op)}"
-        when :set_column_null
-          sch = schema(table).find{|k,v| k.to_s == op[:name].to_s}.last
-          type = {:type=>sch[:db_type]}
-          type[:size] = sch[:max_chars] if sch[:max_chars]
-          "ALTER TABLE #{quote_schema_table(table)} ALTER COLUMN #{quote_identifier(op[:name])} #{type_literal(type)} #{'NOT ' unless op[:null]}NULL"
-        when :set_column_default
-          "ALTER TABLE #{quote_schema_table(table)} ADD CONSTRAINT #{quote_identifier("sequel_#{table}_#{op[:name]}_def")} DEFAULT #{literal(op[:default])} FOR #{quote_identifier(op[:name])}"
-        else
-          super(table, op)
-        end
+      # MSSQL uses the COUNTER(1,1) column for autoincrementing columns.
+      def auto_increment_sql
+        AUTO_INCREMENT
       end
       
       # SQL to start a new savepoint
@@ -91,27 +97,6 @@ module Sequel
       # SQL to ROLLBACK a transaction.
       def rollback_transaction_sql
         SQL_ROLLBACK
-      end
-      
-      # MSSQL uses the INFORMATION_SCHEMA to hold column information.  This method does
-      # not support the parsing of primary key information.
-      def schema_parse_table(table_name, opts)
-        m = output_identifier_meth
-        m2 = input_identifier_meth
-        ds = metadata_dataset.from(:information_schema__tables___t).
-          join(:information_schema__columns___c, :table_catalog=>:table_catalog,
-          :table_schema => :table_schema, :table_name => :table_name).
-          select(:column_name___column, :data_type___db_type, :character_maximum_length___max_chars, :column_default___default, :is_nullable___allow_null).
-          filter(:c__table_name=>m2.call(table_name.to_s))
-        if schema = opts[:schema] || default_schema
-          ds.filter!(:table_schema=>schema)
-        end
-        ds.map do |row|
-          row[:allow_null] = row[:allow_null] == 'YES' ? true : false
-          row[:default] = nil if blank_object?(row[:default])
-          row[:type] = schema_column_type(row[:db_type])
-          [m.call(row.delete(:column)), row]
-        end
       end
       
       # SQL fragment for marking a table as temporary
@@ -164,12 +149,13 @@ module Sequel
         meta = result.getMetaData
         cols = []
         i = 0
-        meta.getColumnCount.times{cols << [output_identifier(meta.getColumnLabel(i+=1)).to_s.downcase.to_sym, i]}
+        meta.getColumnCount.times { cols << [output_identifier(meta.getColumnLabel(i+=1)), i] }
         @columns = cols.map{|c| c.at(0)}
         row = {}
         blk = if @convert_types
           lambda{ |n, i|
             begin
+#              puts "#{n}=#{(o = result.getObject(i)).nil? ? 'nil' : o}"
               row[n] = convert_type(result.getObject(i))
             rescue
               # XXX: this is because HXTT driver throws an error here
@@ -274,11 +260,6 @@ module Sequel
         end
         s = unlimited.where("BETWEEN (recno(), #{@opts[:offset] + 1}, #{@opts[:limit] + @opts[:offset]})")
         s.select_sql
-      end
-
-      # The version of the database server.
-      def server_version
-        db.server_version(@opts[:server])
       end
 
       # Microsoft SQL Server does not support INTERSECT or EXCEPT
