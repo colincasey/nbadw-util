@@ -21,8 +21,7 @@ module Sequel
           Sequel::JDBC::Access::Dataset.new(self, opts)
         end
         
-        private
-                
+        private                
         # Call the generic JDBC version instead of MSSQL version,
         # since the JDBC version handles primary keys.
         def schema_parse_table(table, opts={})

@@ -5,7 +5,7 @@
 
 Gem::Specification.new do |s|
   s.name = %q{nbadw-util}
-  s.version = "0.1.0"
+  s.version = "0.1.2"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Colin Casey"]
@@ -21,6 +21,7 @@ Gem::Specification.new do |s|
      "Rakefile",
      "lib/nbadw/util/copy_database_task.rb",
      "lib/nbadw/util/progress_bar.rb",
+     "lib/scratch.rb",
      "lib/sequel/adapters/jdbc/access.rb",
      "lib/sequel/adapters/shared/access.rb",
      "lib/sequel/jdbc_access_adapter.rb"

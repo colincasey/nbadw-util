@@ -13,9 +13,13 @@ module Sequel
       def database_type
         :access
       end
+      
+      def upcase_identifiers?
+        false
+      end
         
       def supports_savepoints?
-        false
+        true
       end
 
       private
@@ -95,10 +99,10 @@ module Sequel
         m = output_identifier_meth
         m2 = input_identifier_meth
         ds = metadata_dataset.from(:information_schema__tables___t).
-         join(:information_schema__columns___c, :table_catalog=>:table_catalog,
-              :table_schema => :table_schema, :table_name => :table_name).
-         select(:column_name___column, :data_type___db_type, :character_maximum_length___max_chars, :column_default___default, :is_nullable___allow_null).
-         filter(:c__table_name=>m2.call(table_name.to_s))
+          join(:information_schema__columns___c, :table_catalog=>:table_catalog,
+          :table_schema => :table_schema, :table_name => :table_name).
+          select(:column_name___column, :data_type___db_type, :character_maximum_length___max_chars, :column_default___default, :is_nullable___allow_null).
+          filter(:c__table_name=>m2.call(table_name.to_s))
         if schema = opts[:schema] || default_schema
           ds.filter!(:table_schema=>schema)
         end
@@ -149,6 +153,10 @@ module Sequel
       WILDCARD = LiteralString.new('*').freeze
       CONSTANT_MAP = {:CURRENT_DATE=>'CAST(CURRENT_TIMESTAMP AS DATE)'.freeze, :CURRENT_TIME=>'CAST(CURRENT_TIMESTAMP AS TIME)'.freeze}
 
+      def identifier_output_method
+        :to_s
+      end
+
       # Split out from fetch rows to allow processing of JDBC result sets
       # that don't come from issuing an SQL string.
       def process_result_set(result)
@@ -156,7 +164,7 @@ module Sequel
         meta = result.getMetaData
         cols = []
         i = 0
-        meta.getColumnCount.times{cols << [output_identifier(meta.getColumnLabel(i+=1)), i]}
+        meta.getColumnCount.times{cols << [output_identifier(meta.getColumnLabel(i+=1)).to_s.downcase.to_sym, i]}
         @columns = cols.map{|c| c.at(0)}
         row = {}
         blk = if @convert_types
@@ -166,7 +174,7 @@ module Sequel
             rescue
               # XXX: this is because HXTT driver throws an error here
               if n == :column_def && row[:type_name] == 'TIMESTAMP'
-                row[:column_def] = nil
+                row[:column_def] = ''
               end
             end
           }
@@ -235,9 +243,9 @@ module Sequel
       def output(into, values)
         output = {}
         case values
-          when Hash:
+        when Hash:
             output[:column_list], output[:select_list] = values.keys, values.values
-          when Array:
+        when Array:
             output[:select_list] = values
         end
         output[:into] = into
@@ -267,21 +275,6 @@ module Sequel
         s = unlimited.where("BETWEEN (recno(), #{@opts[:offset] + 1}, #{@opts[:limit] + @opts[:offset]})")
         s.select_sql
       end
-#      def select_sql
-#        return super unless offset = @opts[:offset]
-#        raise(Error, 'Access requires an order be provided if using an offset') unless order = @opts[:order]
-#
-#        total_rows = unlimited.count
-#        if @opts[:limit] + @opts[:offset] > total_rows
-#          correction = @opts[:limit] + @opts[:offset] - total_rows
-#          @opts[:limit] = @opts[:limit] - correction
-#        end
-#
-#        s0 = unlimited.limit(@opts[:limit] + @opts[:offset]).order(order)
-#        s1 = unlimited.from(s0.as('s1')).limit(@opts[:limit]).reverse_order(order)
-#        s2 = unlimited.from(s1.as('s2')).order(order)
-#        s2.select_sql
-#      end
 
       # The version of the database server.
       def server_version

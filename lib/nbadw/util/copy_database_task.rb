@@ -2,7 +2,9 @@ require 'sequel'
 require 'sequel/extensions/schema_dumper'
 require 'sequel/extensions/migration'
 require 'nbadw/util/progress_bar'
-require 'sequel/jdbc_access_adapter'
+if defined?(JRUBY_VERSION)
+  require 'sequel/jdbc_access_adapter'
+end
 
 module NBADW
   module Util
