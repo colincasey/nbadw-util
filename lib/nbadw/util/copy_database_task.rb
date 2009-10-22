@@ -2,7 +2,7 @@ require 'sequel'
 require 'sequel/extensions/schema_dumper'
 require 'sequel/extensions/migration'
 require 'nbadw/util/progress_bar'
-require 'nbadw/util/adapter_hacks'
+require 'sequel/jdbc_access_adapter'
 
 module NBADW
   module Util
@@ -15,8 +15,6 @@ module NBADW
         @page_size = options[:page_size] || :unlimited
         @verify_data = !!options[:verify_data]
         @except = options[:except] || []
-        AdapterHacks.load(source.database_type)
-        AdapterHacks.load(destination.database_type)
       end
 
       def self.start(src, dest, options = {})
