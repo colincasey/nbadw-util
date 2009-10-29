@@ -2,6 +2,7 @@ require 'sequel'
 require 'sequel/extensions/schema_dumper'
 require 'sequel/extensions/migration'
 require 'nbadw/util/progress_bar'
+require 'sequel/schema_dumper_patch'
 if defined?(JRUBY_VERSION)
   require 'sequel/jdbc_access_adapter'
 end
@@ -249,7 +250,7 @@ module NBADW
           col, opts = pks[0]
           schema = args[:schema]
           schema = schema.split("\n").collect do |line|
-            line = "  String :#{col}, :size=>#{opts[:column_size]}, :null=>false" if line.match(/primary_key/)
+            line = "  String :#{col}, :size=>#{opts[:column_size] / 2}, :null=>false" if line.match(/primary_key/)
             line = "  primary_key [:#{col}]\nend" if line.match(/^end/)
             line
           end.join("\n")
@@ -260,28 +261,6 @@ module NBADW
       # When copying from access, convert all BigDecimal columns to Float or lose precision!
       before :create_table, :adapter => :access, :for => :source do |src, dst, args|
         args[:schema] = args[:schema].gsub(/BigDecimal/, 'Float')
-      end
-
-      STRING_TO_INT_FIXES = [
-        { :table => "auxUserDBSelectedSites", :column => "AquaticSiteUseID" },
-        { :table => "auxUserDBSelectedSiteUse", :column => "AquaticSiteUseID" },
-        { :table => "cdTranslation - DFO Stock Mating", :column => "Mating Code" },
-        { :table => "DEL-Missing Age Class in tblFishMeasurement", :column => "FishSampleID" },
-        { :table => "DEL-Missing Age Class in tblFishMeasurement-robin", :column => "FishSampleID" },
-        { :table => "Selections", :column => "SelectionID" },
-        { :table => "tblElectrofishingMethodDetail", :column => "AquaticActivityDetailID" },
-        { :table => "tblOldHabitatSurvey", :column => "HabitatSurveyID" }
-      ]
-      # not sure what's up here...
-      before :create_table, :adapter => :postgres, :for => :destination do |src, dst, args|
-        if fix = STRING_TO_INT_FIXES.detect { |fix| fix[:table] == args[:table].to_s }
-          schema = args[:schema]
-          schema = schema.split("\n").collect do |line|
-            line = "  Integer :\"#{fix[:column]}\"" if line.match(/#{fix[:column]}/)
-            line
-          end.join("\n")
-          args[:schema] = schema
-        end
       end
 
       # determines which callbacks to run (is this needlessly complex?)
